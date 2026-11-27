@@ -40,8 +40,7 @@
     hawkSpeed: 205,     // 老鹰固定直线飞行速度
     startChicks: 3,     // 开局队伍数量（含老大）
     eggCount: 6,        // 场上鸡蛋数量
-    maxTrail: 900,      // 轨迹点上限
-    maxChicks: 60
+    maxTrail: 2000      // 轨迹点上限（小鸡数量不设上限）
   };
 
   const BEST_KEY = 'super-chick-best';
@@ -429,10 +428,9 @@
   function hatch(e) {
     state.score += 10;
 
-    const before = state.chicks;
-    state.chicks = Math.min(CFG.maxChicks, state.chicks + 1);
+    state.chicks += 1;
     state.popTimers.length = state.chicks;
-    if (state.chicks > before) state.popTimers[state.chicks - 1] = 0.35;
+    state.popTimers[state.chicks - 1] = 0.35;
 
     state.particles = state.particles.concat(makeBurst(e.x, e.y, 7, 'spark'), makeBurst(e.x, e.y, 4, 'puff'));
     state.texts.push({ x: e.x, y: e.y - 16, text: '+10', color: '#15934A', life: 0.95, max: 0.95 });
@@ -529,9 +527,31 @@
       dirY: dy,
       vx: dx * CFG.hawkSpeed,
       vy: dy * CFG.hawkSpeed,
-      phase: Math.random() * Math.PI * 2,
-      prey: false
+      phase: Math.random() * Math.PI * 2
     });
+  }
+
+  function hawkPoof(h) {
+    burstFeathers(h.x, h.y, 12);
+    state.particles = state.particles.concat(
+      makeBurst(h.x, h.y, 9, 'puff'),
+      makeBurst(h.x, h.y, 10, 'spark')
+    );
+    state.particles.push({
+      x: h.x,
+      y: h.y,
+      kind: 'ring',
+      vx: 0,
+      vy: 0,
+      life: 0.45,
+      max: 0.45,
+      size: 12,
+      rot: 0,
+      vr: 0,
+      color: 'rgba(255, 255, 255, 0.9)'
+    });
+    state.shake = Math.max(state.shake, 12);
+    Sfx.noise(0.22, 0.05, 0, 900);
   }
 
   function stealChick(pos, hawk) {
@@ -542,7 +562,8 @@
     state.shake = 14;
     Sfx.lose();
     haptic(40);
-    hawk.prey = true;
+    hawk.dead = true;
+    hawkPoof(hawk);
   }
 
   function updateHawks(dt) {
@@ -574,18 +595,24 @@
       h.vx = h.dirX * CFG.hawkSpeed;
       h.vy = h.dirY * CFG.hawkSpeed;
 
-      if (!h.prey) {
-        if (state.chicks > 1) {
-          for (let c = 1; c < pos.length; c++) {
-            if (Math.hypot(pos[c].x - h.x, pos[c].y - h.y) < 25) {
-              stealChick(pos[c], h);
-              break;
-            }
+      if (state.chicks > 1) {
+        for (let c = 1; c < pos.length; c++) {
+          if (Math.hypot(pos[c].x - h.x, pos[c].y - h.y) < 25) {
+            stealChick(pos[c], h);
+            break;
           }
-        } else if (pos[0] && Math.hypot(pos[0].x - h.x, pos[0].y - h.y) < 30) {
-          endRun();
-          return;
         }
+      } else if (pos[0] && Math.hypot(pos[0].x - h.x, pos[0].y - h.y) < 30) {
+        hawkPoof(h);
+        state.hawks.splice(i, 1);
+        endRun();
+        return;
+      }
+
+      // 撞到小鸡后老鹰直接消失
+      if (h.dead) {
+        state.hawks.splice(i, 1);
+        continue;
       }
 
       // 飞出画面即移除
