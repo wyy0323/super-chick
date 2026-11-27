@@ -440,6 +440,13 @@
         ctx.closePath();
         ctx.fillStyle = p.color;
         ctx.fill();
+      } else if (p.kind === 'ring') {
+        const k = 1 - a;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size + k * 52, 0, Math.PI * 2);
+        ctx.lineWidth = 1 + 5 * a;
+        ctx.strokeStyle = p.color;
+        ctx.stroke();
       } else {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size * (1.7 - a * 0.7), 0, Math.PI * 2);
