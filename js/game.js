@@ -37,7 +37,7 @@
   const CFG = {
     spacing: 26,        // 小鸡之间的跟随间距
     speed: 360,         // 队伍移动速度 px/s
-    hawkSpeed: 205,     // 老鹰追击速度
+    hawkSpeed: 205,     // 老鹰固定直线飞行速度
     startChicks: 3,     // 开局队伍数量（含老大）
     eggCount: 6,        // 场上鸡蛋数量
     maxTrail: 900,      // 轨迹点上限
@@ -502,25 +502,36 @@
   }
 
   function spawnHawk(w) {
-    const ang = Math.atan2(state.player.y - w.y, state.player.x - w.x);
+    // 固定路径：出场瞬间锁定方向，之后不再追踪
+    const pos = getChickPositions();
+    let tx = state.player.x;
+    let ty = state.player.y;
+
+    if (pos.length) {
+      let sx = 0;
+      let sy = 0;
+      for (let i = 0; i < pos.length; i++) {
+        sx += pos[i].x;
+        sy += pos[i].y;
+      }
+      tx = sx / pos.length;
+      ty = sy / pos.length;
+    }
+
+    const ang = Math.atan2(ty - w.y, tx - w.x);
+    const dx = Math.cos(ang);
+    const dy = Math.sin(ang);
+
     state.hawks.push({
       x: w.x,
       y: w.y,
-      vx: Math.cos(ang) * 140,
-      vy: Math.sin(ang) * 140,
+      dirX: dx,
+      dirY: dy,
+      vx: dx * CFG.hawkSpeed,
+      vy: dy * CFG.hawkSpeed,
       phase: Math.random() * Math.PI * 2,
-      age: 0,
-      retarget: 0,
-      targetIdx: 1,
-      mode: 'hunt'
+      prey: false
     });
-  }
-
-  function toLeave(hawk, forceAngle) {
-    hawk.mode = 'leave';
-    const ang = (forceAngle == null ? Math.atan2(hawk.y - H / 2, hawk.x - W / 2) : forceAngle) + rand(-0.35, 0.35);
-    hawk.vx = Math.cos(ang) * CFG.hawkSpeed * 1.35;
-    hawk.vy = Math.sin(ang) * CFG.hawkSpeed * 1.35;
   }
 
   function stealChick(pos, hawk) {
@@ -531,7 +542,7 @@
     state.shake = 14;
     Sfx.lose();
     haptic(40);
-    toLeave(hawk, -Math.PI / 2);
+    hawk.prey = true;
   }
 
   function updateHawks(dt) {
@@ -556,56 +567,31 @@
 
     for (let i = state.hawks.length - 1; i >= 0; i--) {
       const h = state.hawks[i];
-      h.age += dt;
 
-      if (h.mode === 'leave') {
-        h.x += h.vx * dt;
-        h.y += h.vy * dt;
-        if (h.x < -180 || h.x > W + 180 || h.y < -180 || h.y > H + 180) state.hawks.splice(i, 1);
-        continue;
-      }
+      // 沿出场时锁定的方向直线飞行
+      h.x += h.dirX * CFG.hawkSpeed * dt;
+      h.y += h.dirY * CFG.hawkSpeed * dt;
+      h.vx = h.dirX * CFG.hawkSpeed;
+      h.vy = h.dirY * CFG.hawkSpeed;
 
-      h.retarget -= dt;
-      if (h.retarget <= 0 || !pos[h.targetIdx]) {
-        h.targetIdx = state.chicks > 1 ? 1 + Math.floor(Math.random() * (state.chicks - 1)) : 0;
-        h.retarget = 0.55 + Math.random() * 0.5;
-      }
-
-      const target = pos[Math.min(h.targetIdx, pos.length - 1)];
-      if (!target) { state.hawks.splice(i, 1); continue; }
-
-      let dx = target.x - h.x;
-      let dy = target.y - h.y;
-      const d = Math.hypot(dx, dy) || 1;
-      dx /= d;
-      dy /= d;
-
-      // 蛇形俯冲，给玩家留出躲避空间
-      const wob = Math.sin(state.t * 2.6 + h.phase) * 0.55;
-      const cs = Math.cos(wob);
-      const sn = Math.sin(wob);
-      const sx = dx * cs - dy * sn;
-      const sy = dx * sn + dy * cs;
-
-      const k = Math.min(1, dt * 3.2);
-      h.vx += (sx * CFG.hawkSpeed - h.vx) * k;
-      h.vy += (sy * CFG.hawkSpeed - h.vy) * k;
-      h.x += h.vx * dt;
-      h.y += h.vy * dt;
-
-      if (state.chicks > 1) {
-        for (let c = 1; c < pos.length; c++) {
-          if (Math.hypot(pos[c].x - h.x, pos[c].y - h.y) < 25) {
-            stealChick(pos[c], h);
-            break;
+      if (!h.prey) {
+        if (state.chicks > 1) {
+          for (let c = 1; c < pos.length; c++) {
+            if (Math.hypot(pos[c].x - h.x, pos[c].y - h.y) < 25) {
+              stealChick(pos[c], h);
+              break;
+            }
           }
+        } else if (pos[0] && Math.hypot(pos[0].x - h.x, pos[0].y - h.y) < 30) {
+          endRun();
+          return;
         }
-      } else if (pos[0] && Math.hypot(pos[0].x - h.x, pos[0].y - h.y) < 30) {
-        endRun();
-        return;
       }
 
-      if (h.mode === 'hunt' && h.age > 8) toLeave(h);
+      // 飞出画面即移除
+      if (h.x < -220 || h.x > W + 220 || h.y < -220 || h.y > H + 220) {
+        state.hawks.splice(i, 1);
+      }
     }
   }
 
